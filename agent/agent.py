@@ -3,17 +3,23 @@
 This example shows how to create an Agno Agent with tools (YFinanceTools) and expose it in an AG-UI compatible way.
 """
 
+import dotenv
 from agno.agent.agent import Agent
 from agno.app.agui.app import AGUIApp
 from agno.models.openai import OpenAIChat
 from agno.tools.yfinance import YFinanceTools
+from frontend_tools import add_proverb, set_theme_color
+
+dotenv.load_dotenv()
 
 agent = Agent(
   model=OpenAIChat(id="gpt-4o"),
   tools=[
-    YFinanceTools(
-      stock_price=True, analyst_recommendations=True, stock_fundamentals=True
-    )
+    # Example of a backend tool, defined and handled in your agno agent
+    YFinanceTools(stock_price=True, historical_prices=True),
+    # Example of frontend tools, handled in the frontend Next.js app
+    add_proverb,
+    set_theme_color,
   ],
   description="You are an investment analyst that researches stock prices, analyst recommendations, and stock fundamentals.",
   instructions="Format your response using markdown and use tables to display data where possible.",
