@@ -51,3 +51,4 @@ bun.lockb
 # python
 agent/venv/
 agent/__pycache__/
+.venv/
