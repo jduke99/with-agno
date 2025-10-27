@@ -15,9 +15,10 @@ const serviceAdapter = new ExperimentalEmptyAdapter();
 //    integration to setup the connection.
 const runtime = new CopilotRuntime({
   agents: {
-    // Our FastAPI endpoint URL
+    // Our FastAPI endpoint URLs
     "agno_agent": new AgnoAgent({url: "http://localhost:8000/agui"}),
-  }   
+    "syphilis_agent": new AgnoAgent({url: "http://localhost:8001/agui"}),
+  }
 });
  
 // 3. Build a Next.js API route that handles the CopilotKit runtime requests.

@@ -1,130 +1,46 @@
-import chainlit as cl
-import mlflow.genai.prompts
-import logging
-import asyncio
-import functools
+"""Syphilis Registry Query Agent
 
+This agent provides natural language querying capabilities for a syphilis patient registry database.
+"""
+
+import os
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
-from agno.storage.sqlite import SqliteStorage
-import os
-import mlflow
-from dotenv import load_dotenv
-from typing import Iterator, Dict, Any, Union, List
-from agno.run.response import RunResponse
+from agno.os import AgentOS
+from agno.os.interfaces.agui import AGUI
+import requests
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import requests
-from prompt_loader import prompts
-import time
-from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 from decimal import Decimal
 import psycopg2
 
-# set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
 # Load environment variables
-load_dotenv()
-
-# Store the current thinking message globally so tools can update it
-current_thinking_message = None
-current_thinking_text = "Analyzing..."
-
-def set_thinking_message(message: str):
-    """Set a custom thinking message that tools can use"""
-    global current_thinking_text
-    current_thinking_text = message
-
-async def update_thinking_message(new_text: str):
-    """Update the thinking message in real-time"""
-    global current_thinking_message, current_thinking_text
-    if current_thinking_message:
-        current_thinking_text = new_text
-        current_thinking_message.content = f"""
-        <div class="thinking-spinner">
-            <div class="spinner-icon"></div>
-            <span class="thinking-text">Analyzing...</span>
-        </div>
-        """
-        await current_thinking_message.update()
-
-def update_thinking_message_sync(new_text: str):
-    """Synchronous version of thinking message update"""
-    global current_thinking_message, current_thinking_text
-    if current_thinking_message:
-        current_thinking_text = new_text
-        current_thinking_message.content = f"""
-        <div class="thinking-spinner">
-            <div class="spinner-icon"></div>
-            <span class="thinking-text">>Analyzing..</span>
-        </div>
-        """
-        # Create and run a new event loop for just this update
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(current_thinking_message.update())
-        finally:
-            loop.close()
-
-def tool_thinking_message(message: str):
-    """Decorator for tools to update thinking message before execution"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            # If message contains format placeholders, try to fill them from args/kwargs
-            formatted_message = message
-            try:
-                # Combine positional and keyword arguments for formatting
-                all_args = dict(zip(func.__code__.co_varnames, args), **kwargs)
-                formatted_message = message.format(**all_args)
-            except (KeyError, IndexError):
-                # If formatting fails, use message as-is
-                pass
-            
-            update_thinking_message_sync(formatted_message)
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-# Store plots for the current message
-current_plots = []
-
-# Get configuration from environment variables
-agent_storage: str = os.getenv("AGENT_STORAGE_PATH")
-
-mlflow.set_tracking_uri("http://localhost:5000")
+import dotenv
+dotenv.load_dotenv()
 
 # Define tools
-#@tool_thinking_message("🔍 Searching for {medical_term} codes...")
 def code_set_generator(domain: str, medical_term: str, term_from_text: str = None, sentence: str = None) -> str:
     """
     Generate medical code sets by querying the terminology search API.
-    
+
     Args:
         domain: The medical domain (e.g., 'Condition', 'Medication')
         medical_term: The standardized medical term
         term_from_text: The term as it appears in the text (defaults to medical_term if not provided)
         sentence: The user's query containing the term (optional)
-        
+
     Returns:
         A message confirming the codeset has been displayed
     """
-    
+
     print(f"Generating code set for {domain} with medical term: {medical_term}")
-    
+
     # Set default values if not provided
     if term_from_text is None:
         term_from_text = medical_term
-    
+
     # Prepare request
     url = "http://localhost:4000/agent_terminology_search"
-    #url="https://dev.heat.icl.gtri.org/medterm-alchemize/agent_terminology_search"
-    
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": "db3cc6ce-0b73-40f0-8cc1-462692db5d17"
@@ -135,18 +51,18 @@ def code_set_generator(domain: str, medical_term: str, term_from_text: str = Non
         "domain": domain,
         "sentence": sentence or f"Patient has {medical_term}"
     }
-    
+
     try:
         # Make API request
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()  # Raise exception for HTTP errors
-        
+
         # Process response
         results = response.json()
-        
+
         if not results:
             return f"No codes found for {medical_term} in domain {domain}."
-            
+
         # Create DataFrame from results
         df = pd.DataFrame([{
             'Concept ID': item.get('concept_id', 'N/A'),
@@ -156,171 +72,28 @@ def code_set_generator(domain: str, medical_term: str, term_from_text: str = Non
             'Records': item.get('RC', 'N/A'),
         } for item in results])
 
-        #sort data frame by RC descending
+        # Sort data frame by RC descending
         df.sort_values(by='Records', ascending=False, inplace=True)
-        #remove Records column
+        # Remove Records column
         df.drop(columns=['Records'], inplace=True)
 
-        # Create DataFrame element and add to current_plots
-        global current_plots
-        current_plots.append(cl.Dataframe(data=df, display="inline", name="codeset"))
-        
         # Return the JSON results so the agent can use the codes
-        return results
-        
+        return str(results)
+
     except requests.exceptions.RequestException as e:
         error_message = f"❌ Error fetching code set: {str(e)}"
         return error_message
 
-#@tool_thinking_message("📈 Creating {plot_type} chart...")
-def plot_dynamic_chart(data: Union[Dict[str, Any], List[Dict[str, Any]]], plot_type: str, x: Union[str, List[str]] = None, y: Union[str, List[str]] = None, title: str = None, color: str = None, **kwargs) -> str:
-    """
-    Create dynamic plots using Plotly with enhanced support for complex visualizations
-    Args:
-        data: Dictionary or list of dictionaries containing the data to plot
-        plot_type: Type of plot ('scatter', 'bar', 'line', 'box', etc.)
-        x: x-axis column name (string) or list of column names
-        y: y-axis column name (string) or list of column names
-        title: Optional plot title
-        color: Column name for color grouping/categorization (NEW!)
-        **kwargs: Additional plotting parameters
-    """
-
-    try:
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-        else:
-            df = pd.DataFrame(data if isinstance(data, dict) else {"data": data})
-
-        # Handle parameter validation - convert lists to strings if needed
-        if isinstance(x, list):
-            if len(x) == 1:
-                x = x[0]  # Use single column if only one provided
-            else:
-                return f"Error: x parameter should be a single column name, but received multiple: {x}. Please specify one column for x-axis."
-
-        if isinstance(y, list):
-            if len(y) == 1:
-                y = y[0]  # Use single column if only one provided
-            else:
-                return f"Error: y parameter should be a single column name, but received multiple: {y}. Please specify one column for y-axis."
-
-        # Ensure we have valid columns
-        if x and x not in df.columns:
-            available_cols = df.columns.tolist()[:10]  # Show first 10 columns
-            return f"Error: Column '{x}' not found in data. Available columns: {available_cols}"
-        if y and y not in df.columns:
-            available_cols = df.columns.tolist()[:10]  # Show first 10 columns
-            return f"Error: Column '{y}' not found in data. Available columns: {available_cols}"
-        if color and color not in df.columns:
-            available_cols = df.columns.tolist()[:10]  # Show first 10 columns
-            return f"Error: Color column '{color}' not found in data. Available columns: {available_cols}"
-
-        # Let Plotly choose the best figure type based on plot_type
-        plot_functions = {
-            "scatter": px.scatter,
-            "bar": px.bar,
-            "line": px.line,
-            "box": px.box,
-            "histogram": px.histogram,
-            "pie": px.pie,
-            "heatmap": px.imshow,
-            "density_heatmap": px.density_heatmap,
-        }
-
-        plot_fn = plot_functions.get(plot_type.lower())
-        if not plot_fn:
-            return f"Unsupported plot type: {plot_type}. Supported types are: {', '.join(plot_functions.keys())}"
-
-        # Handle different plot types with appropriate parameters
-        if plot_type.lower() in ["heatmap", "density_heatmap"]:
-            # For heatmaps, we don't use x and y parameters in the same way
-            if plot_type.lower() == "heatmap":
-                # For matrix heatmaps, handle different data formats
-                try:
-                    # Check if df is already a correlation/pivot matrix
-                    if hasattr(df, 'values') and len(df.shape) == 2:
-                        # Use the DataFrame values for the heatmap
-                        z_data = df.values
-                        x_labels = df.columns.tolist() if hasattr(df, 'columns') else None
-                        y_labels = df.index.tolist() if hasattr(df, 'index') else None
-
-                        fig = plot_fn(z_data,
-                                     x=x_labels,
-                                     y=y_labels,
-                                     labels=dict(color="Value"),
-                                     **kwargs)
-                    else:
-                        # Try to convert to numpy array
-                        z_data = np.array(df)
-                        if z_data.ndim == 2:
-                            fig = plot_fn(z_data,
-                                         labels=dict(color="Value"),
-                                         **kwargs)
-                        else:
-                            return f"Error: heatmap data must be 2D. Got shape: {z_data.shape}"
-                except Exception as heatmap_error:
-                    return f"Error preparing heatmap data: {str(heatmap_error)}"
-
-            else:  # density_heatmap
-                # For density heatmaps, we need x and y columns
-                if x and y:
-                    fig = plot_fn(df, x=x, y=y, **kwargs)
-                else:
-                    return f"Error: density_heatmap requires x and y column names"
-        else:
-            # Enhanced plotting with color support for other plot types
-            plot_kwargs = {"template": "seaborn"}
-
-            # Add x and y if provided
-            if x:
-                plot_kwargs["x"] = x
-            if y:
-                plot_kwargs["y"] = y
-
-            # Add color parameter if provided (NEW FEATURE!)
-            if color:
-                plot_kwargs["color"] = color
-                # For bar charts with color, use grouped bars
-                if plot_type.lower() == "bar":
-                    plot_kwargs["barmode"] = "group"
-
-            # Add any additional kwargs
-            plot_kwargs.update(kwargs)
-
-            fig = plot_fn(df, **plot_kwargs)
-
-        if title:
-            fig.update_layout(title=title)
-
-        # Store plot for current message (similar to original approach but cleaner)
-        global current_plots
-        plot_name = f"{plot_type}_chart_{len(current_plots) + 1}"
-        current_plots.append(
-            cl.Plotly(
-                name=plot_name,
-                figure=fig,
-                display="inline",
-                size="large",
-            )
-        )
-
-        return f"Generated a {plot_type} plot using Plotly: {title or plot_name}"
-
-    except Exception as e:
-        return f"Error creating plot: {str(e)}"
-
-#@tool_thinking_message("Generating SQL query...")
 def get_sql_query(user_command: str, query_type: str, concept_results: dict, concept_ids: str) -> str:
     """
     Generate a SQL query by calling the query generation server.
-    
+
     Args:
         user_command: The user's analytic question.
         query_type: The type of query (e.g., 'population').
         concept_results: Dictionary of concept sets from the elucidation process.
         concept_ids: Comma-separated string of concept IDs.
-        
+
     Returns:
         The generated SQL query or an error message.
     """
@@ -329,7 +102,7 @@ def get_sql_query(user_command: str, query_type: str, concept_results: dict, con
     if os.getenv("DATABASE_TYPE") == "POSTGRES":
         cdm_schema = os.getenv("CDM_SCHEMA")
         vocab_schema = os.getenv("VOCAB_SCHEMA")
-        
+
         payload = {
             "user_command": user_command,
             "query_type": "population",
@@ -351,11 +124,10 @@ def get_sql_query(user_command: str, query_type: str, concept_results: dict, con
         return "Unsupported database type. Please set DATABASE_TYPE to POSTGRES or SNOWFLAKE."
 
     print(payload)
-    
+
     try:
         response = requests.post(url, json=payload)
         response.raise_for_status()
-        # Assuming the server returns a JSON with a "sql" key
         print(response.json().get("query", "No SQL query returned from the server."))
         return response.json().get("query", "No SQL query returned from the server.")
     except requests.exceptions.RequestException as e:
@@ -442,8 +214,7 @@ def execute_sql_query(sql_query: str) -> str:
         if 'conn' in locals():
             conn.close()
 
-# @tool_thinking_message("🔬 Executing pandas analysis...")
-def pandas_analysis(pandas_code: str = None, data: Union[Dict[str, Any], List[Dict[str, Any]], pd.DataFrame] = None, data_context: str = None, pandas_code_context: str = None) -> str:
+def pandas_analysis(pandas_code: str = None, data: any = None, data_context: str = None, pandas_code_context: str = None) -> str:
     """
     Execute arbitrary pandas code safely for data analysis.
 
@@ -551,8 +322,6 @@ def pandas_analysis(pandas_code: str = None, data: Union[Dict[str, Any], List[Di
             return _format_list_result(result)
         elif isinstance(result, dict):
             return _format_dict_result(result)
-        elif hasattr(result, 'plot'):  # Check if it's a plot object
-            return _handle_plot_result(result, pandas_code)
         else:
             return f"Analysis Result: {str(result)}"
 
@@ -564,11 +333,6 @@ def pandas_analysis(pandas_code: str = None, data: Union[Dict[str, Any], List[Di
 
 def _format_dataframe_result(df: pd.DataFrame) -> str:
     """Format DataFrame results for display"""
-    global current_plots
-
-    # Add DataFrame to plots for display
-    current_plots.append(cl.Dataframe(data=df, display="inline", name="pandas_analysis"))
-
     # Return summary information
     summary = f"DataFrame Analysis Result:\n"
     summary += f"Shape: {df.shape[0]} rows × {df.shape[1]} columns\n"
@@ -597,7 +361,7 @@ def _format_series_result(series: pd.Series) -> str:
 
     return result
 
-def _format_list_result(data: Union[list, tuple]) -> str:
+def _format_list_result(data: any) -> str:
     """Format list/tuple results for display"""
     result_type = "List" if isinstance(data, list) else "Tuple"
     result = f"{result_type} Analysis Result:\n"
@@ -629,30 +393,7 @@ def _format_dict_result(data: dict) -> str:
 
     return result
 
-def _handle_plot_result(plot_obj, code: str) -> str:
-    """Handle matplotlib/plotly plot results"""
-    global current_plots
-
-    try:
-        # If it's a plotly figure
-        if hasattr(plot_obj, 'to_html'):
-            plot_name = f"pandas_plot_{len(current_plots) + 1}"
-            current_plots.append(
-                cl.Plotly(
-                    name=plot_name,
-                    figure=plot_obj,
-                    display="inline",
-                    size="large"
-                )
-            )
-            return f"Generated plot: {plot_name}"
-        else:
-            return f"Plot object created but not displayed. Result type: {type(plot_obj)}"
-    except Exception as e:
-        return f"Error handling plot result: {str(e)}"
-
-@tool_thinking_message("📊 Performing statistical analysis...")
-def statistical_analysis(data: Union[Dict[str, Any], List[Dict[str, Any]], pd.DataFrame], analysis_type: str, columns: List[str] = None, **kwargs) -> str:
+def statistical_analysis(data: any, analysis_type: str, columns: list = None, **kwargs) -> str:
     """
     Perform statistical analysis on data.
 
@@ -702,7 +443,7 @@ def statistical_analysis(data: Union[Dict[str, Any], List[Dict[str, Any]], pd.Da
     except Exception as e:
         return f"Error in statistical analysis: {str(e)}"
 
-def _statistical_summary(df: pd.DataFrame, columns: List[str] = None) -> str:
+def _statistical_summary(df: pd.DataFrame, columns: list = None) -> str:
     """Generate statistical summary of the data"""
     if columns:
         df_subset = df[columns]
@@ -718,7 +459,7 @@ def _statistical_summary(df: pd.DataFrame, columns: List[str] = None) -> str:
 
     return summary
 
-def _correlation_analysis(df: pd.DataFrame, columns: List[str] = None) -> str:
+def _correlation_analysis(df: pd.DataFrame, columns: list = None) -> str:
     """Calculate correlation matrix"""
     if columns:
         numeric_cols = [col for col in columns if pd.api.types.is_numeric_dtype(df[col])]
@@ -744,7 +485,7 @@ def _correlation_analysis(df: pd.DataFrame, columns: List[str] = None) -> str:
 
     return result
 
-def _chi_square_test(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
+def _chi_square_test(df: pd.DataFrame, columns: list, **kwargs) -> str:
     """Perform chi-square test of independence"""
     if not columns or len(columns) != 2:
         return "Error: Chi-square test requires exactly 2 categorical columns"
@@ -790,7 +531,7 @@ def _chi_square_test(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
     except Exception as e:
         return f"Error performing chi-square test: {str(e)}"
 
-def _cramers_v_test(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
+def _cramers_v_test(df: pd.DataFrame, columns: list, **kwargs) -> str:
     """Calculate Cramér's V for categorical association strength"""
     if not columns or len(columns) != 2:
         return "Error: Cramér's V test requires exactly 2 categorical columns"
@@ -850,7 +591,7 @@ def _cramers_v_test(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
     except Exception as e:
         return f"Error calculating Cramér's V: {str(e)}"
 
-def _distribution_analysis(df: pd.DataFrame, columns: List[str] = None) -> str:
+def _distribution_analysis(df: pd.DataFrame, columns: list = None) -> str:
     """Analyze distribution of numeric columns"""
     if columns:
         numeric_cols = [col for col in columns if pd.api.types.is_numeric_dtype(df[col])]
@@ -886,7 +627,7 @@ def _distribution_analysis(df: pd.DataFrame, columns: List[str] = None) -> str:
 
     return result
 
-def _groupby_analysis(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
+def _groupby_analysis(df: pd.DataFrame, columns: list, **kwargs) -> str:
     """Perform groupby analysis"""
     if not columns or len(columns) < 2:
         return "Error: Groupby analysis requires at least 2 columns (grouping column + analysis column)"
@@ -918,129 +659,33 @@ def _groupby_analysis(df: pd.DataFrame, columns: List[str], **kwargs) -> str:
 
     return result
 
+# Load instructions from prompt file
+def load_prompt(filename: str) -> str:
+    """Load prompt from file"""
+    try:
+        with open(filename, 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "You are a helpful assistant for querying a syphilis patient registry database."
 
-# Query Elucidation Agent
-query_elucidation_agent = Agent(
-    name="Query Elucidation Agent",
-    model=OpenAIChat(id=os.getenv("MODEL_NAME"), api_key=os.getenv("API_KEY"),base_url=os.getenv("OPENAI_SERVER")),
-    instructions=prompts.load("syphilis_query_elucidation_prompt"),
-    tools=[plot_dynamic_chart, execute_sql_query, pandas_analysis, statistical_analysis],
-    show_tool_calls=False,
-    debug_mode=False,
-    storage=SqliteStorage(table_name="query_agent", db_file=agent_storage),
-    add_datetime_to_instructions=True,
-    add_history_to_messages=True,
-    num_history_responses=5,
+instructions = load_prompt("syphilis_query_elucidation_prompt.txt")
+
+# Create the agent
+agent = Agent(
+    name="Syphilis Registry Query Agent",
+    model=OpenAIChat(id="gpt-4o-mini"),
+    instructions=instructions,
+    tools=[
+        code_set_generator,
+        get_sql_query,
+        execute_sql_query,
+    ],
     markdown=True,
 )
 
-def get_query_agent():
-    # Return the query agent
-    return query_elucidation_agent
-
-async def parse_stream(stream, msg):
-    logger.debug("Starting to parse stream")
-    accumulated_content = ""
-    
-    for chunk in stream:
-        if chunk.content is not None:
-            logger.debug(f"Streaming chunk: {chunk.content[:100]}...")  # Log first 100 chars
-            accumulated_content += chunk.content
-            # Update the existing message
-            msg.content = accumulated_content
-            await msg.update()
-    
-    logger.debug("Finished parsing stream")
-    
-    # After streaming is complete, check for plots and add them as elements
-    global current_plots
-    if current_plots:
-        try:
-            # Add all collected plots to the message
-            msg.elements = current_plots.copy()
-            await msg.update()
-            
-            # Clear plots for next message
-            current_plots = []
-            logger.debug(f"Added {len(msg.elements)} plot elements to message")
-        except Exception as e:
-            logger.error(f"Error adding plot elements: {e}")
-
-@cl.on_chat_start
-async def start():
-    logger.debug("Starting new chat session")
-    
-    # Clear any existing session data to prevent persistence
-    cl.user_session.set("chat_history", [])
-    cl.user_session.set("messages", [])
-    # Clear any agent-specific session data
-    cl.user_session.set("agent_memory", {})
-    
-    # Send beautiful header with HTML
-    header_html = """
-    <div class="app-header">
-        <h1>Syphilis Registry Explorer</h1>
-        <h2>Natural Language Exploration of the SmartChart Syphilis Registry</h2>
-    </div>
-    """
-    
-    await cl.Message(content=header_html).send()
-    
-    # Send welcome message
-    
-    # Send sample queries as formatted message
-    sample_content = """
- **Welcome to the Syphilis Registry Explorer, a natural language tool for exploring data in the SmartChart Syphilis Registry.** 
- 
- Example queries:
-
-◇ What is the distribution of the stages of syphilis?
-
-◇ What is the breakdown of different treatment regimens? 
-
-◇ How does housing status affect treatment success?
-
-    """
-    
-    await cl.Message(content=sample_content).send()
-
-@cl.on_message
-async def main(message: cl.Message):
-    logger.debug(f"Received message: {message.content}")
-    
-    global current_thinking_message, current_thinking_text
-    
-    # Show custom thinking spinner
-    current_thinking_message = await cl.Message(
-        content=f"""
-        <div class="thinking-spinner">
-            <div class="spinner-icon"></div>
-            <span class="thinking-text">{current_thinking_text}</span>
-        </div>
-        """
-    ).send()
-    
-    # Get the query agent
-    main_agent = get_query_agent()
-
-    # Run the agent with streaming
-    stream = main_agent.run(
-        message.content,
-        stream=True,
-        auto_invoke_tools=True,
-    )
-
-    # Create a new message for the actual response
-    response_msg = cl.Message(content="")
-    await response_msg.send()
-    
-    # Parse stream into the response message
-    await parse_stream(stream, response_msg)
-    
-    # Remove the thinking message after completion
-    await current_thinking_message.remove()
-    current_thinking_message = None
+# Set up AgentOS
+agent_os = AgentOS(agents=[agent], interfaces=[AGUI(agent=agent)])
+app = agent_os.get_app()
 
 if __name__ == "__main__":
-    # Start the Chainlit server with explicit port configuration
-    cl.run(port=8601)
+    agent_os.serve(app="agent_syphilis:app", port=8001, reload=True)

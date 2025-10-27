@@ -29,9 +29,7 @@ export default function CopilotKitPage() {
   return (
     <main style={{ "--copilot-kit-primary-color": themeColor } as CopilotKitCSSProperties}>
       <YourMainContent themeColor={themeColor} />
-      <CopilotChat
-        welcomeMessage="👋 Hi, there! You're chatting with an agent. This agent comes with a few tools to get you started.\n\nFor example you can try:\n- **Frontend Tools**: \"Set the theme to orange\"\n- **Manage state**: \"Write a proverb about AI\"\n- **Generative UI**: \"Get the last 4 days of stock prices for AAPL\"\n\nAs you interact with the agent, you'll see the UI update in real-time to reflect the agent's **state**, **tool calls**, and **progress**."
-      />
+      <CopilotChat />
       <CopilotSidebar
         clickOutsideToClose={false}
         defaultOpen={true}
