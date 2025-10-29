@@ -153,11 +153,11 @@ export default function CopilotKitPage() {
       </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex justify-center items-center p-8">
+      <div className="flex-1 flex justify-center p-4">
         {/* CopilotChat - Main Interaction */}
-        <div className="w-full max-w-4xl">
+        <div className="w-full max-w-6xl h-full">
           <CopilotChat
-            className="h-[600px]"
+            className="h-full"
             labels={{
               initial: "👋 Welcome to the Georgia APCD Provider Workforce Explorer!\n\nI'm here to help you analyze provider workforce data. You can ask me questions about:\n\n- Provider demographics and distribution\n- Workforce trends and patterns  \n- Data visualizations and charts\n\nTry asking: \"Show me a test chart\" to see the visualization capabilities!"
             }}
