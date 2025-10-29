@@ -1,7 +1,7 @@
 "use client";
 
 import { useCopilotAction } from "@copilotkit/react-core";
-import { CopilotKitCSSProperties, CopilotSidebar, CopilotChat } from "@copilotkit/react-ui";
+import { CopilotKitCSSProperties, CopilotChat } from "@copilotkit/react-ui";
 import { useState } from "react";
 import type { ActionRenderProps } from "@copilotkit/react-core";
 import {
@@ -33,7 +33,6 @@ ChartJS.register(
 
 export default function CopilotKitPage() {
   const [themeColor, setThemeColor] = useState("#1e40af");
-  const [sidebarContent, setSidebarContent] = useState<string | null>(null);
 
   // Frontend action for displaying charts inline in chat
   useCopilotAction({
@@ -154,35 +153,16 @@ export default function CopilotKitPage() {
       </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex justify-center items-center p-8">
         {/* CopilotChat - Main Interaction */}
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="w-full max-w-4xl">
-            <CopilotChat
-              className="h-[600px]"
-              labels={{
-                initial: "👋 Welcome to the Georgia APCD Provider Workforce Explorer!\n\nI'm here to help you analyze provider workforce data. You can ask me questions about:\n\n- Provider demographics and distribution\n- Workforce trends and patterns  \n- Data visualizations and charts\n\nTry asking: \"Show me a test chart\" to see the visualization capabilities!"
-              }}
-            />
-          </div>
+        <div className="w-full max-w-4xl">
+          <CopilotChat
+            className="h-[600px]"
+            labels={{
+              initial: "👋 Welcome to the Georgia APCD Provider Workforce Explorer!\n\nI'm here to help you analyze provider workforce data. You can ask me questions about:\n\n- Provider demographics and distribution\n- Workforce trends and patterns  \n- Data visualizations and charts\n\nTry asking: \"Show me a test chart\" to see the visualization capabilities!"
+            }}
+          />
         </div>
-
-        {/* Sidebar for Charts/Tables */}
-        <CopilotSidebar
-          clickOutsideToClose={false}
-          defaultOpen={!!sidebarContent}
-          className="w-96"
-          labels={{
-            title: "Data Visualization",
-            initial: "Charts and tables will appear here when you request visualizations from the agent."
-          }}
-        >
-          {sidebarContent && (
-            <div className="p-4">
-              <div dangerouslySetInnerHTML={{ __html: sidebarContent }} />
-            </div>
-          )}
-        </CopilotSidebar>
       </div>
     </main>
   );

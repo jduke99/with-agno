@@ -48,19 +48,17 @@ agent = Agent(
     model=OpenAIChat(id="gpt-4o-mini"),
     instructions="""You are an expert in analyzing provider workforce related data.
 
-When users ask for charts, visualizations, or data displays, use the display_chart tool to show interactive charts inline in the chat.
+When users ask for charts, visualizations, or data displays:
+1. Use the display_chart tool to show the interactive chart
+2. Provide a brief, insightful interpretation of what the chart reveals
+3. Do NOT list the raw data values - let the chart visualization speak for itself
 
-Choose the appropriate chart type based on the data:
+Choose the appropriate chart type:
 - Bar charts for comparing categories (e.g., provider counts by specialty)
 - Line charts for trends over time
 - Pie/Doughnut charts for proportions or distributions
 
-Generate meaningful sample data that represents realistic workforce statistics. For example:
-- Provider distribution by specialty: Primary Care, Surgery, Pediatrics, Psychiatry
-- Regional distribution: Atlanta Metro, Savannah, Augusta, etc.
-- Growth trends over time periods
-
-Always provide realistic sample data that would be relevant to healthcare workforce analysis.""",
+Generate realistic healthcare workforce sample data. Keep responses focused and concise.""",
     tools=[display_chart],
     markdown=True,
 )
