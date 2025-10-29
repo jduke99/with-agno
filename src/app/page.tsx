@@ -3,194 +3,187 @@
 import { useCopilotAction } from "@copilotkit/react-core";
 import { CopilotKitCSSProperties, CopilotSidebar, CopilotChat } from "@copilotkit/react-ui";
 import { useState } from "react";
-import { 
-  StockPriceCardProps, 
-  HistoricalStockDataProps,
-  StockData
-} from "@/lib/types";
+import type { ActionRenderProps } from "@copilotkit/react-core";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+} from 'chart.js';
+import { Bar, Doughnut, Line, Pie } from 'react-chartjs-2';
 
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement
+);
 
 export default function CopilotKitPage() {
-  const [themeColor, setThemeColor] = useState("#6366f1");
+  const [themeColor, setThemeColor] = useState("#1e40af");
+  const [sidebarContent, setSidebarContent] = useState<string | null>(null);
 
-  // 🪁 Frontend Actions: https://docs.copilotkit.ai/guides/frontend-actions
+  // Frontend action for displaying charts inline in chat
   useCopilotAction({
-    name: "set_theme_color",
+    name: "display_chart",
+    description: "Display interactive charts inline in the chat",
     parameters: [{
-      name: "theme_color",
-      description: "The theme color to set. Make sure to pick nice colors.",
-      required: true, 
-    }],
-    handler({ theme_color }) {
-      setThemeColor(theme_color);
-    },
-  });
-
-  return (
-    <main style={{ "--copilot-kit-primary-color": themeColor } as CopilotKitCSSProperties}>
-      <YourMainContent themeColor={themeColor} />
-      <CopilotChat />
-      <CopilotSidebar
-        clickOutsideToClose={false}
-        defaultOpen={true}
-        labels={{
-          title: "Popup Assistant",
-          initial: "👋 Hi, there! You're chatting with an agent. This agent comes with a few tools to get you started.\n\nFor example you can try:\n- **Frontend Tools**: \"Set the theme to orange\"\n- **Manage state**: \"Write a proverb about AI\"\n- **Generative UI**: \"Get the last 4 days of stock prices for AAPL\"\n\nAs you interact with the agent, you'll see the UI update in real-time to reflect the agent's **state**, **tool calls**, and **progress**."
-        }}
-      />
-    </main>
-  );
-}
-
-function YourMainContent({ themeColor }: { themeColor: string }) {
-  const [state, setState] = useState<{proverbs: string[]}>({
-    proverbs: [
-      "CopilotKit may be new, but its the best thing since sliced bread.",
-    ],
-  });
-
-  // 🪁 Frontend Actions: https://docs.copilotkit.ai/coagents/frontend-actions
-  useCopilotAction({
-    name: "add_proverb",
-    parameters: [{
-      name: "proverb",
-      description: "The proverb to add. Make it witty, short and concise.",
+      name: "chart_type",
+      description: "Type of chart (bar, line, pie, doughnut)",
+      type: "string",
       required: true,
+      enum: ["bar", "line", "pie", "doughnut"],
+    }, {
+      name: "title",
+      description: "Chart title",
+      type: "string",
+      required: true,
+    }, {
+      name: "labels",
+      description: "Chart labels as comma-separated string",
+      type: "string",
+      required: true,
+    }, {
+      name: "data",
+      description: "Chart data values as comma-separated numbers",
+      type: "string",
+      required: true,
+    }, {
+      name: "dataset_label",
+      description: "Label for the data series",
+      type: "string",
+      required: false,
     }],
-    handler: ({ proverb }) => {
-      setState({
-        ...state,
-        proverbs: [...state.proverbs, proverb],
-      });
-    },
-  });
-
-  //🪁 Generative UI: https://docs.copilotkit.ai/coagents/generative-ui
-  useCopilotAction({
-    name: "get_current_stock_price",
-    render: ({ args, result, status }) => {
-      if (status !== "complete") return <div>Loading stock price for {args.symbol}...</div>;
-      return (
-        <div className="mb-4">
-          {result && <StockPriceCard symbol={args.symbol} price={result} themeColor={themeColor} />}
-        </div>
-      );
-    },
-  });
-
-  //🪁 Generative UI: https://docs.copilotkit.ai/coagents/generative-ui
-  useCopilotAction({
-    name: "get_historical_stock_prices",
-    parameters: [
-      { name: "symbol", type: "string", required: true },
-      { name: "period", type: "string", required: true },
-      { name: "interval", type: "string", required: true },
-    ],
-    render: ({ args, result, status }) => {
-      if (status !== "complete") return <div>Loading historical prices for {args.symbol} every {args.interval} for the last {args.period}...</div>;
-      return (
-        <div className="mb-4">
-          {result && <HistoricalStockData data={result} args={args} themeColor={themeColor} />}
-        </div>
-      );
-    },
-  });
-
-
-  return (
-    <div
-      style={{ backgroundColor: themeColor }}
-      className="h-screen w-screen flex justify-center items-center flex-col transition-colors duration-300"
-    >
-      <div className="bg-white/20 backdrop-blur-md p-8 rounded-2xl shadow-xl max-w-2xl w-full">
-        <h1 className="text-4xl font-bold text-white mb-2 text-center">Proverbs</h1>
-        <p className="text-gray-200 text-center italic mb-6">This is a demonstrative page, but it could be anything you want! 🪁</p>
-        <hr className="border-white/20 my-6" />
-        <div className="flex flex-col gap-3">
-          {state.proverbs?.map((proverb, index) => (
-            <div 
-              key={index} 
-              className="bg-white/15 p-4 rounded-xl text-white relative group hover:bg-white/20 transition-all"
-            >
-              <p className="pr-8">{proverb}</p>
-              <button 
-                onClick={() => setState({
-                  ...state,
-                  proverbs: state.proverbs?.filter((_, i) => i !== index),
-                })}
-                className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity 
-                  bg-red-500 hover:bg-red-600 text-white rounded-full h-6 w-6 flex items-center justify-center"
-              >
-                ✕
-              </button>
+    render: ({ status, args }) => {
+      if (status === "executing") {
+        return (
+          <div className="my-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span className="text-blue-700">Generating chart...</span>
             </div>
-          ))}
-        </div>
-        {state.proverbs?.length === 0 && <p className="text-center text-white/80 italic my-8">
-          No proverbs yet. Ask the assistant to add some!
-        </p>}
-      </div>
-    </div>
-  );
-}
+          </div>
+        );
+      }
+      if (status === "complete" && args) {
+        // Parse comma-separated strings into arrays
+        const labels = typeof args.labels === 'string' ? args.labels.split(',').map(s => s.trim()) : [];
+        const data = typeof args.data === 'string' ? args.data.split(',').map(s => parseFloat(s.trim())) : [];
 
-// Stock Price Card Component
-function StockPriceCard({ symbol, price, themeColor }: StockPriceCardProps) {
-  return (
-    <div style={{ backgroundColor: themeColor }} className="bg-white/20 backdrop-blur-md p-6 rounded-xl shadow-lg max-w-md w-full mb-4">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex justify-between w-full">
-          <h3 className="text-2xl font-bold text-white">{symbol}</h3>
-          <p className="text-gray-200 text-2xl">${price}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
+        const chartData = {
+          labels: labels,
+          datasets: [{
+            label: args.dataset_label || 'Data',
+            data: data,
+            backgroundColor: [
+              'rgba(59, 130, 246, 0.8)',
+              'rgba(16, 185, 129, 0.8)',
+              'rgba(245, 158, 11, 0.8)',
+              'rgba(239, 68, 68, 0.8)',
+              'rgba(139, 92, 246, 0.8)',
+              'rgba(236, 72, 153, 0.8)',
+            ],
+            borderColor: [
+              'rgba(59, 130, 246, 1)',
+              'rgba(16, 185, 129, 1)',
+              'rgba(245, 158, 11, 1)',
+              'rgba(239, 68, 68, 1)',
+              'rgba(139, 92, 246, 1)',
+              'rgba(236, 72, 153, 1)',
+            ],
+            borderWidth: 2,
+          }],
+        };
 
-// Historical Stock Data Component
-function HistoricalStockData({ data, args, themeColor }: HistoricalStockDataProps) {
-  if (!data) return null;
-  
-  const entries = Object.entries(data).slice(0, 5); // Show last 5 entries
-  
-  return (
-    <div style={{ backgroundColor: themeColor }} className="bg-white/20 backdrop-blur-md p-6 rounded-xl shadow-lg max-w-2xl w-full mb-4">
-      <h3 className="text-xl font-bold text-white mb-4">{args.symbol}</h3>
-      <p className="text-gray-200 text-sm mb-4">Period: {args.period}  |  Interval: {args.interval}</p>
-      <div className="space-y-3">
-        {entries.map(([timestamp, stockData]: [string, StockData]) => {
-          const date = new Date(parseInt(timestamp));
-          const formattedDate = date.toLocaleDateString();
-          
-          return (
-            <div key={timestamp} className="bg-white/10 p-4 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-white font-medium">{formattedDate}</span>
-                <span className="text-green-400 font-bold">${stockData.Close?.toFixed(2)}</span>
-              </div>
-              <div className="grid grid-cols-4 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-300">Open</span>
-                  <div className="text-white">${stockData.Open?.toFixed(2)}</div>
-                </div>
-                <div>
-                  <span className="text-gray-300">High</span>
-                  <div className="text-white">${stockData.High?.toFixed(2)}</div>
-                </div>
-                <div>
-                  <span className="text-gray-300">Low</span>
-                  <div className="text-white">${stockData.Low?.toFixed(2)}</div>
-                </div>
-                <div>
-                  <span className="text-gray-300">Volume</span>
-                  <div className="text-white">{(stockData.Volume / 1000000).toFixed(1)}M</div>
-                </div>
-              </div>
+        const options = {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'top' as const,
+            },
+            title: {
+              display: true,
+              text: args.title || 'Chart',
+              font: {
+                size: 16,
+                weight: 'bold' as const,
+              },
+            },
+          },
+          scales: args.chart_type === 'bar' || args.chart_type === 'line' ? {
+            y: {
+              beginAtZero: true,
+            },
+          } : undefined,
+        };
+
+        return (
+          <div className="my-4 p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
+            <div className="w-full max-w-2xl mx-auto">
+              {args.chart_type === 'bar' && <Bar data={chartData} options={options} />}
+              {args.chart_type === 'line' && <Line data={chartData} options={options} />}
+              {args.chart_type === 'pie' && <Pie data={chartData} options={options} />}
+              {args.chart_type === 'doughnut' && <Doughnut data={chartData} options={options} />}
             </div>
-          );
-        })}
+          </div>
+        );
+      }
+      return <></>;
+    },
+  });
+
+  return (
+    <main style={{ "--copilot-kit-primary-color": themeColor } as CopilotKitCSSProperties} className="h-screen flex flex-col">
+      {/* Header */}
+      <header className="bg-blue-900 text-white p-6 shadow-lg">
+        <h1 className="text-3xl font-bold text-center">
+          Georgia APCD Provider Workforce Explorer
+        </h1>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex">
+        {/* CopilotChat - Main Interaction */}
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="w-full max-w-4xl">
+            <CopilotChat
+              className="h-[600px]"
+              labels={{
+                initial: "👋 Welcome to the Georgia APCD Provider Workforce Explorer!\n\nI'm here to help you analyze provider workforce data. You can ask me questions about:\n\n- Provider demographics and distribution\n- Workforce trends and patterns  \n- Data visualizations and charts\n\nTry asking: \"Show me a test chart\" to see the visualization capabilities!"
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Sidebar for Charts/Tables */}
+        <CopilotSidebar
+          clickOutsideToClose={false}
+          defaultOpen={!!sidebarContent}
+          className="w-96"
+          labels={{
+            title: "Data Visualization",
+            initial: "Charts and tables will appear here when you request visualizations from the agent."
+          }}
+        >
+          {sidebarContent && (
+            <div className="p-4">
+              <div dangerouslySetInnerHTML={{ __html: sidebarContent }} />
+            </div>
+          )}
+        </CopilotSidebar>
       </div>
-    </div>
+    </main>
   );
 }

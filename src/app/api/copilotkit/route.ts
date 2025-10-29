@@ -17,7 +17,7 @@ const runtime = new CopilotRuntime({
   agents: {
     // Our FastAPI endpoint URLs
     "agno_agent": new AgnoAgent({url: "http://localhost:8000/agui"}),
-    "syphilis_agent": new AgnoAgent({url: "http://localhost:8001/agui"}),
+    "workforce_agent": new AgnoAgent({url: "http://localhost:8001/agui"}),
   }
 });
  
